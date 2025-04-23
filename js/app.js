@@ -2,12 +2,6 @@
  * Main Application Module - Entry point for the application
  * Coordinates initialization of all other modules
  */
-import ApiService from './api-service.js';
-import ChatController from './chat-controller.js';
-import SettingsController from './settings-controller.js';
-import UiController from './ui-controller.js';
-import { getElement, showElement, hideElement } from './utils.js';
-
 const App = (function() {
     'use strict';
     

@@ -2,19 +2,9 @@
  * API Service Module - Handles all communication with AI APIs
  * Interfaces with OpenAI and Gemini APIs and manages API keys
  */
-import { decryptApiKey, encryptApiKey } from './utils.js';
-// Assuming SettingsController instance is passed or accessible
-// We'll adjust this in app.js if needed
+const ApiService = (function() {
+    'use strict';
 
-const API_ENDPOINTS = {
-    // ... existing endpoints
-};
-
-/**
- * @class ApiService
- * @description Handles API key management and communication with AI models.
- */
-class ApiService {
     // Private state
     let apiKey = "";
     let geminiApiKey = "";
@@ -49,31 +39,12 @@ class ApiService {
         responseMimeType: "text/plain"
     };
 
-    /** @private */ _settingsController = null; // To hold the SettingsController instance
-
-    /**
-     * Creates an instance of ApiService.
-     * @param {object} dependencies - An object containing dependencies.
-     * @param {SettingsController} dependencies.settingsController - The settings controller instance.
-     * @param {UiController} dependencies.uiController - The UI controller instance.
-     */
-    constructor({ settingsController, uiController }) {
-        if (!settingsController || !uiController) {
-            throw new Error("ApiService requires settingsController and uiController instances.");
-        }
-        this._settingsController = settingsController; // Store the instance
-        this._uiController = uiController;
-        
-        // Initialize the API service by decrypting the API key
-        this.init();
-    }
-
     /**
      * Initialize the API service by decrypting the API key
      * @param {string} password - The password to decrypt the API key
      * @returns {boolean} - Whether initialization was successful
      */
-    init(password) {
+    function init(password) {
         if (!password) return false;
         
         try {
@@ -91,7 +62,7 @@ class ApiService {
      * @param {Array} messages - The message history
      * @returns {Promise<Object>} - The API response
      */
-    async sendOpenAIRequest(model, messages) {
+    async function sendOpenAIRequest(model, messages) {
         const payload = { model, messages };
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -117,7 +88,7 @@ class ApiService {
      * @param {Function} onChunk - Callback for each chunk of data
      * @returns {Promise<string>} - The full response text
      */
-    async streamOpenAIRequest(model, messages, onChunk) {
+    async function streamOpenAIRequest(model, messages, onChunk) {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: { 
@@ -177,7 +148,7 @@ class ApiService {
      * @param {string} model - The model to use
      * @returns {Object} - Session with sendMessage method
      */
-    createGeminiSession(model) {
+    function createGeminiSession(model) {
         return {
             sendMessage: async function(userText, chatHistory) {
                 // Prepare contents array and request body
@@ -220,7 +191,7 @@ class ApiService {
      * @param {Function} onChunk - Callback for each chunk of data
      * @returns {Promise<string>} - The full response text
      */
-    async streamGeminiRequest(model, chatHistory, onChunk) {
+    async function streamGeminiRequest(model, chatHistory, onChunk) {
         // Build the request body
         const contents = chatHistory.map(item => ({
             role: item.role === 'assistant' ? 'model' : 'user',
@@ -286,7 +257,7 @@ class ApiService {
      * @param {Array} chatHistory - The current chat history
      * @returns {Promise<number>} - The token count of the last interaction
      */
-    async getTokenUsage(model, chatHistory) {
+    async function getTokenUsage(model, chatHistory) {
         try {
             let usageResult;
             
@@ -317,141 +288,6 @@ class ApiService {
         }
     }
 
-    /**
-     * Sends a request to the selected AI model.
-     * @param {Array<object>} messages - The chat history messages.
-     * @param {string} model - The selected AI model ID.
-     * @param {boolean} stream - Whether to stream the response.
-     * @param {AbortController} abortController - The AbortController for the request.
-     * @param {boolean} useCoT - Whether to use Chain of Thought prompting.
-     * @param {boolean} showThinking - Whether to show the AI's thinking process.
-     * @returns {Promise<string | ReadableStreamDefaultReader>} The AI response or stream reader.
-     * @throws {Error} If the API key is missing or the request fails.
-     */
-    async sendRequest(messages, model, stream, abortController, useCoT = false, showThinking = false) {
-        // ... (API key check remains the same) ...
-
-        const apiKey = this.getApiKey();
-        if (!apiKey) {
-            throw new Error('API key is missing or invalid.');
-        }
-
-        const endpointDetails = API_ENDPOINTS[model];
-        if (!endpointDetails) {
-            throw new Error(`Unsupported model: ${model}`);
-        }
-
-        // Get system prompt content from SettingsController
-        const systemPromptContent = this._settingsController.getSelectedSystemPromptContent();
-
-        let payload;
-        let headers = { 'Content-Type': 'application/json' };
-        let url = endpointDetails.endpoint;
-
-        // Add Chain of Thought instructions if enabled
-        const finalMessages = this._prepareMessagesForCoT(messages, useCoT, showThinking);
-
-        if (endpointDetails.provider === 'openai') {
-            headers['Authorization'] = `Bearer ${apiKey}`;
-            payload = this._prepareOpenAIPayload(finalMessages, model, stream, systemPromptContent); // Pass system prompt
-        } else if (endpointDetails.provider === 'google') {
-            url = `${url}?key=${apiKey}`;
-            payload = this._prepareGeminiPayload(finalMessages, stream, systemPromptContent); // Pass system prompt
-        } else {
-            throw new Error(`Unsupported provider for model: ${model}`);
-        }
-
-        // ... (rest of the fetch logic remains the same) ...
-        try {
-            // ... fetch call ...
-        } catch (error) {
-             // ... error handling ...
-        }
-    }
-
-    /**
-     * Prepares the payload for OpenAI API requests.
-     * @private
-     * @param {Array<object>} messages - The chat messages.
-     * @param {string} model - The model ID.
-     * @param {boolean} stream - Whether to stream the response.
-     * @param {string | null} systemPromptContent - The system prompt content.
-     * @returns {object} The OpenAI API payload.
-     */
-    _prepareOpenAIPayload(messages, model, stream, systemPromptContent) {
-        const formattedMessages = messages.map(msg => ({
-            role: msg.role === 'ai' ? 'assistant' : msg.role,
-            content: msg.content
-        }));
-
-        // Add system prompt if provided
-        if (systemPromptContent) {
-            formattedMessages.unshift({ role: 'system', content: systemPromptContent });
-        }
-
-        return {
-            model: model,
-            messages: formattedMessages,
-            stream: stream,
-            // Add other parameters like temperature, max_tokens if needed
-            // temperature: 0.7,
-            // max_tokens: 1000,
-        };
-    }
-
-    /**
-     * Prepares the payload for Google Gemini API requests.
-     * @private
-     * @param {Array<object>} messages - The chat messages.
-     * @param {boolean} stream - Whether to stream the response.
-     * @param {string | null} systemPromptContent - The system prompt content.
-     * @returns {object} The Gemini API payload.
-     */
-    _prepareGeminiPayload(messages, stream, systemPromptContent) {
-        const contents = messages.map(msg => ({
-            role: msg.role === 'ai' ? 'model' : 'user', // Gemini uses 'model' for assistant
-            parts: [{ text: msg.content }]
-        }));
-
-        // Ensure the last message is from the 'user'
-        if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
-             // If the last message is from the model, we might need to adjust
-             // depending on the specific Gemini API requirements for conversation turns.
-             // For now, we assume the logic sending messages ensures user is last.
-             console.warn("Last message sent to Gemini is from 'model'. Ensure conversation structure is valid.");
-        }
-
-        const payload = {
-            contents: contents,
-            generationConfig: {
-                // Adjust temperature, topP, topK, maxOutputTokens as needed
-                temperature: 1,
-                topP: 0.95,
-                topK: 64,
-                maxOutputTokens: 8192,
-                // responseMimeType: 'text/plain', // Often default, include if needed
-            },
-            // Add safetySettings if required
-            // safetySettings: [ ... ]
-        };
-
-        // Add system instruction if provided
-        if (systemPromptContent) {
-            payload.systemInstruction = {
-                role: 'user', // Gemini system instructions seem to use 'user' role here
-                parts: [{ text: systemPromptContent }]
-            };
-        }
-
-        // Note: Gemini streaming uses a different endpoint suffix (:streamGenerateContent)
-        // This needs to be handled in the calling function (sendRequest) based on the `stream` flag
-        // The payload structure might also slightly differ for streaming.
-        // Assuming the current endpoint in API_ENDPOINTS handles non-streaming.
-        // If streaming is needed for Gemini, endpoint and potentially payload needs adjustment.
-
-        return payload;
-    }
-
     // Public API
     return {
         init,
@@ -461,6 +297,4 @@ class ApiService {
         streamGeminiRequest,
         getTokenUsage
     };
-}
-
-export default ApiService; 
+})(); 
