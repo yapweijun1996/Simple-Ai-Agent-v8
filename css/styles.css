@@ -233,6 +233,9 @@ html, body {
 
 .settings-modal__item {
     margin-bottom: var(--space-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .settings-modal__label {
@@ -241,10 +244,20 @@ html, body {
     gap: var(--space-sm);
     cursor: pointer;
     user-select: none;
+    flex-shrink: 0;
 }
 
 .settings-modal__checkbox {
     margin-right: var(--space-sm);
+}
+
+.settings-modal__select {
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-sm);
+    flex-grow: 1;
+    margin-left: var(--space-md);
 }
 
 .settings-modal__actions {

@@ -214,8 +214,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
         // Apply CoT formatting if enabled
         const enhancedMessage = settings.enableCoT ? enhanceWithCoT(message) : message;
         
-        // Get the selected model
-        const selectedModel = UIController.getSelectedModel();
+        // Get the selected model from SettingsController
+        const currentSettings = SettingsController.getSettings();
+        const selectedModel = currentSettings.selectedModel;
         
         try {
             if (selectedModel.startsWith('gpt')) {

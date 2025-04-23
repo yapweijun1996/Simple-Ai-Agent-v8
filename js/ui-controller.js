@@ -55,6 +55,7 @@ const UIController = (function() {
     /**
      * Sets up event handlers for UI elements
      * @param {Function} onSendMessage - Callback for send button
+     * @param {Function} onClearChat - Callback for clear chat button
      */
     function setupEventHandlers(onSendMessage, onClearChat) {
         sendMessageCallback = onSendMessage;
@@ -245,36 +246,39 @@ const UIController = (function() {
     }
 
     /**
-     * Creates an empty AI message element
+     * Gets the user input from the message input field
+     * @returns {string} - The user message
+     */
+    function getUserInput() {
+        const messageInput = document.getElementById('message-input');
+        return messageInput.value.trim();
+    }
+
+    /**
+     * Clears the message input field
+     */
+    function clearUserInput() {
+        const messageInput = document.getElementById('message-input');
+        messageInput.value = '';
+        messageInput.style.height = 'auto'; // Reset height
+    }
+
+    /**
+     * Creates an empty AI message element placeholder
      * @returns {Element} - The created message element
      */
     function createEmptyAIMessage() {
-        return addMessage('ai', '');
-    }
-
-    /**
-     * Gets the content of the user input field
-     * @returns {string} - The user input text
-     */
-    function getUserInput() {
-        return document.getElementById('message-input').value.trim();
-    }
-
-    /**
-     * Clears the user input field
-     */
-    function clearUserInput() {
-        const inputElement = document.getElementById('message-input');
-        inputElement.value = '';
-        inputElement.style.height = 'auto';
-    }
-
-    /**
-     * Gets the currently selected model
-     * @returns {string} - The selected model ID
-     */
-    function getSelectedModel() {
-        return document.getElementById('model-select').value;
+        const chatWindow = document.getElementById('chat-window');
+        const messageElement = Utils.createFromTemplate('message-template');
+        messageElement.classList.add('ai-message');
+        
+        const contentElement = messageElement.querySelector('.chat-app__message-content');
+        contentElement.innerHTML = '<span class="thinking-indicator">Thinking...</span>'; // Placeholder
+        
+        chatWindow.appendChild(messageElement);
+        messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        
+        return messageElement;
     }
 
     // Public API
@@ -282,10 +286,10 @@ const UIController = (function() {
         init,
         setupEventHandlers,
         addMessage,
-        createEmptyAIMessage,
+        clearChatWindow,
         updateMessageContent,
         getUserInput,
         clearUserInput,
-        getSelectedModel
+        createEmptyAIMessage
     };
 })(); 

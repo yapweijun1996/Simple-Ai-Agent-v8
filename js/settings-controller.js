@@ -10,7 +10,8 @@ const SettingsController = (function() {
     let settings = {
         streaming: true,
         enableCoT: false,
-        showThinking: true
+        showThinking: true,
+        selectedModel: 'gpt-4.1-mini' // Default model
     };
 
     /**
@@ -27,6 +28,7 @@ const SettingsController = (function() {
         document.getElementById('streaming-toggle').checked = settings.streaming;
         document.getElementById('cot-toggle').checked = settings.enableCoT;
         document.getElementById('show-thinking-toggle').checked = settings.showThinking;
+        document.getElementById('model-select').value = settings.selectedModel;
         
         // Add event listeners
         document.getElementById('save-settings').addEventListener('click', saveSettings);
@@ -48,10 +50,12 @@ const SettingsController = (function() {
             createSettingsModal();
         }
         
+        // Ensure current settings are reflected when opening
         settingsModal.style.display = 'flex';
         document.getElementById('streaming-toggle').checked = settings.streaming;
         document.getElementById('cot-toggle').checked = settings.enableCoT;
         document.getElementById('show-thinking-toggle').checked = settings.showThinking;
+        document.getElementById('model-select').value = settings.selectedModel;
     }
 
     /**
@@ -70,12 +74,14 @@ const SettingsController = (function() {
         const streamingEnabled = document.getElementById('streaming-toggle').checked;
         const cotEnabled = document.getElementById('cot-toggle').checked;
         const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
+        const selectedModelValue = document.getElementById('model-select').value;
         
         settings = {
             ...settings,
             streaming: streamingEnabled,
             enableCoT: cotEnabled,
-            showThinking: showThinkingEnabled
+            showThinking: showThinkingEnabled,
+            selectedModel: selectedModelValue
         };
         
         // Update the chat controller settings
@@ -94,7 +100,22 @@ const SettingsController = (function() {
     function initSettings() {
         const savedSettings = Utils.getSettingsFromCookie();
         if (savedSettings) {
-            settings = { ...settings, ...savedSettings };
+            // Ensure all expected keys are present, merging saved settings over defaults
+            settings = { 
+                streaming: true, // Default
+                enableCoT: false, // Default
+                showThinking: true, // Default
+                selectedModel: 'gpt-4.1-mini', // Default
+                ...savedSettings // Overwrite with saved values if they exist
+            };
+        } else {
+             // If no cookie, ensure defaults are set (redundant but safe)
+             settings = {
+                streaming: true,
+                enableCoT: false,
+                showThinking: true,
+                selectedModel: 'gpt-4.1-mini'
+             };
         }
         
         // Apply settings to chat controller
