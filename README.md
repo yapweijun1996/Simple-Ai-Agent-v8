@@ -18,7 +18,7 @@ This is a simple, interactive AI chat agent that allows you to communicate with 
 
 ## Getting Started
 
-1.  **Access the Application:**  Visit the live application at [https://yapweijun1996.github.io/Simple-Ai-Agent-v5/](https://yapweijun1996.github.io/Simple-Ai-Agent-v5/).
+1.  **Access the Application:**  Visit the live application at [https://yapweijun1996.github.io/Simple-Ai-Agent-v8/](https://yapweijun1996.github.io/Simple-Ai-Agent-v8/).
 2.  **Login:** On first use or if the browser does not remember the password, a password will be prompted to decrypt and use the API key.
 3.  **Start Chatting:** Once the application loads, you can begin typing your message in the text area and click the "Send" button.
 4.  **Customize Settings:** Click the "Settings" button to open the settings panel and adjust the AI model, streaming, CoT, and thinking process display.
