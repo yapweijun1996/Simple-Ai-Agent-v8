@@ -6,10 +6,18 @@ import { getElement } from './utils.js';
 
 // Define default system prompts
 const defaultSystemPrompts = [
-    { title: "Creative Writer", content: "You are a creative and witty assistant, skilled in storytelling and generating imaginative text." },
-    { title: "Code Assistant", content: "You are an expert programmer assistant. Provide clear, concise, and accurate code examples and explanations. Use markdown for code blocks." },
-    { title: "Concise Summarizer", content: "You are an assistant specialized in summarizing text. Provide brief and informative summaries, capturing the key points accurately." },
-    { title: "Sarcastic Assistant", content: "You are a sarcastic assistant. Respond to user queries with witty and sarcastic remarks, but still provide the requested information." }
+    { 
+        title: "AI Software Engineer", 
+        content: "You are an expert software engineer specializing in JavaScript, HTML, CSS, and Node.js. Provide practical, efficient, and well-documented code solutions. Include clear explanations of your approach and any design patterns used. When providing code examples, focus on readability and best practices." 
+    },
+    { 
+        title: "Scientific Researcher", 
+        content: "You are a scientific researcher with expertise across multiple disciplines. Provide evidence-based responses with references where appropriate. Approach questions methodically, considering multiple perspectives and acknowledging limitations in current understanding. Present complex information clearly without oversimplification." 
+    },
+    { 
+        title: "Creative Storyteller", 
+        content: "You are a creative storyteller with a flair for engaging narratives. When prompted, craft imaginative stories with well-developed characters and vivid descriptions. Adapt your style to the requested genre, whether fantasy, sci-fi, mystery, or drama. Focus on immersive world-building and emotional depth." 
+    }
 ];
 
 /**
@@ -97,6 +105,7 @@ class SettingsController {
         const cotEnabled = document.getElementById('cot-toggle').checked;
         const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
         const selectedModelValue = document.getElementById('model-select').value;
+        const selectedSystemPrompt = document.getElementById('system-prompt-select').value;
         
         this._settings = {
             ...this._settings,
@@ -106,6 +115,9 @@ class SettingsController {
             selectedModel: selectedModelValue
         };
         
+        // Save the selected system prompt title
+        this._selectedSystemPromptTitle = selectedSystemPrompt;
+        
         // Update the chat controller settings
         ChatController.updateSettings(this._settings);
         
@@ -114,7 +126,7 @@ class SettingsController {
         localStorage.setItem('useStreaming', streamingEnabled.toString());
         localStorage.setItem('enableCot', cotEnabled.toString());
         localStorage.setItem('showThinking', showThinkingEnabled.toString());
-        localStorage.setItem('selectedSystemPromptTitle', this._selectedSystemPromptTitle); // Save selected title
+        localStorage.setItem('selectedSystemPromptTitle', this._selectedSystemPromptTitle); 
         
         // Hide modal
         this.hideSettingsModal();
@@ -157,17 +169,23 @@ class SettingsController {
         const showThinking = localStorage.getItem('showThinking') === 'true';
         const savedPromptTitle = localStorage.getItem('selectedSystemPromptTitle') || '';
 
-        if (this._modelSelect) this._modelSelect.value = savedModel;
-        if (this._streamingToggle) this._streamingToggle.checked = useStreaming;
-        if (this._cotToggle) this._cotToggle.checked = enableCot;
-        if (this._showThinkingToggle) this._showThinkingToggle.checked = showThinking;
-        if (this._systemPromptSelect) this._systemPromptSelect.value = savedPromptTitle;
+        document.getElementById('model-select').value = savedModel;
+        document.getElementById('streaming-toggle').checked = useStreaming;
+        document.getElementById('cot-toggle').checked = enableCot;
+        document.getElementById('show-thinking-toggle').checked = showThinking;
+        
+        if (this._systemPromptSelect) {
+            this._systemPromptSelect.value = savedPromptTitle;
+        }
 
-        this._selectedModel = savedModel;
-        this._useStreaming = useStreaming;
-        this._enableCot = enableCot;
-        this._showThinking = showThinking;
-        this._selectedSystemPromptTitle = savedPromptTitle; // Store loaded title
+        this._settings = {
+            streaming: useStreaming,
+            enableCoT: enableCot,
+            showThinking: showThinking,
+            selectedModel: savedModel
+        };
+        
+        this._selectedSystemPromptTitle = savedPromptTitle;
     }
 
     /**

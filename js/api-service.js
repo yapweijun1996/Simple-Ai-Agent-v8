@@ -7,7 +7,22 @@ import { decryptApiKey, encryptApiKey } from './utils.js';
 // We'll adjust this in app.js if needed
 
 const API_ENDPOINTS = {
-    // ... existing endpoints
+    'gpt-4.1-mini': { 
+        endpoint: 'https://api.openai.com/v1/chat/completions', 
+        provider: 'openai' 
+    },
+    'gpt-4.1-nano': { 
+        endpoint: 'https://api.openai.com/v1/chat/completions', 
+        provider: 'openai' 
+    },
+    'gemini-2.0-flash': { 
+        endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash', 
+        provider: 'google' 
+    },
+    'gemma-3-27b-it': { 
+        endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it', 
+        provider: 'google' 
+    }
 };
 
 /**
@@ -15,57 +30,53 @@ const API_ENDPOINTS = {
  * @description Handles API key management and communication with AI models.
  */
 class ApiService {
-    // Private state
-    let apiKey = "";
-    let geminiApiKey = "";
-    
-    // Encrypted API keys
-    const encryptedOpenAIKey = "069089026066075089092031002003099081098064082125085108093006123109084087069010097094114091115010026093095069126088000107095121083104015115094081116122082001110083091112111031107123125089102075109090007091101098011084093094091081091065125092000095109005116094085089127124065102101117011003125102007070014123126120064002118015101093122067105119090112120113093125081086113122118113001120123011125092085103007086108119119007083119014125015112124106000120087004098124093117090066000116113095081115";
-    
-    // Gemini decryption
-    (function(){
-        var _0x1a2b3c = "20250325";
-        var _0x4d5e6f = "115121072084099074118106117088090121005073031071112069112077003119122093072123106109115098002002094093126121003069010";
-        var _0x7f8g9h = function(_0xabcd){
-            var _0x123 = new TextDecoder(), _0x456 = new TextEncoder(), _0x789 = "";
-            for(var _0xdef = 0; _0xdef < _0xabcd.length; _0xdef += 3) {
-                var _0x101 = _0xabcd.slice(_0xdef, _0xdef + 3);
-                var _0x112 = parseInt(_0x101);
-                var _0x131 = _0x1a2b3c.charCodeAt((_0xdef / 3) % _0x1a2b3c.length);
-                var _0x415 = _0x112 ^ _0x131;
-                _0x789 += String.fromCharCode(_0x415);
-            }
-            return _0x123.decode(new Uint8Array(_0x456.encode(_0x789)));
-        };
-        geminiApiKey = _0x7f8g9h(_0x4d5e6f);
-    })();
-
-    // Gemini API configuration
-    const generationConfig = {
-        temperature: 1,
-        topP: 0.95,
-        topK: 40,
-        maxOutputTokens: 8192,
-        responseMimeType: "text/plain"
-    };
-
-    /** @private */ _settingsController = null; // To hold the SettingsController instance
-
-    /**
-     * Creates an instance of ApiService.
-     * @param {object} dependencies - An object containing dependencies.
-     * @param {SettingsController} dependencies.settingsController - The settings controller instance.
-     * @param {UiController} dependencies.uiController - The UI controller instance.
-     */
     constructor({ settingsController, uiController }) {
         if (!settingsController || !uiController) {
             throw new Error("ApiService requires settingsController and uiController instances.");
         }
-        this._settingsController = settingsController; // Store the instance
+        this._settingsController = settingsController;
         this._uiController = uiController;
+        
+        // Private state
+        this._apiKey = "";
+        this._geminiApiKey = "";
+        
+        // Gemini API configuration
+        this._generationConfig = {
+            temperature: 1,
+            topP: 0.95,
+            topK: 64,
+            maxOutputTokens: 8192,
+            responseMimeType: "text/plain"
+        };
+        
+        // Encrypted API keys
+        this._encryptedOpenAIKey = "069089026066075089092031002003099081098064082125085108093006123109084087069010097094114091115010026093095069126088000107095121083104015115094081116122082001110083091112111031107123125089102075109090007091101098011084093094091081091065125092000095109005116094085089127124065102101117011003125102007070014123126120064002118015101093122067105119090112120113093125081086113122118113001120123011125092085103007086108119119007083119014125015112124106000120087004098124093117090066000116113095081115";
+        
+        // Gemini decryption
+        this._initGeminiKey();
         
         // Initialize the API service by decrypting the API key
         this.init();
+    }
+    
+    _initGeminiKey() {
+        const key = "20250325";
+        const encryptedKey = "115121072084099074118106117088090121005073031071112069112077003119122093072123106109115098002002094093126121003069010";
+        const decrypt = function(encrypted) {
+            const decoder = new TextDecoder();
+            const encoder = new TextEncoder();
+            let result = "";
+            for(let i = 0; i < encrypted.length; i += 3) {
+                const chunk = encrypted.slice(i, i + 3);
+                const num = parseInt(chunk);
+                const keyChar = key.charCodeAt((i / 3) % key.length);
+                const decrypted = num ^ keyChar;
+                result += String.fromCharCode(decrypted);
+            }
+            return decoder.decode(new Uint8Array(encoder.encode(result)));
+        };
+        this._geminiApiKey = decrypt(encryptedKey);
     }
 
     /**
@@ -77,7 +88,7 @@ class ApiService {
         if (!password) return false;
         
         try {
-            apiKey = Utils.decrypt(encryptedOpenAIKey, password);
+            this._apiKey = Utils.decrypt(this._encryptedOpenAIKey, password);
             return true;
         } catch (err) {
             console.error('Failed to decrypt API key:', err);
@@ -97,7 +108,7 @@ class ApiService {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json', 
-                'Authorization': 'Bearer ' + apiKey 
+                'Authorization': 'Bearer ' + this._apiKey 
             },
             body: JSON.stringify(payload)
         });
@@ -122,7 +133,7 @@ class ApiService {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json', 
-                'Authorization': 'Bearer ' + apiKey 
+                'Authorization': 'Bearer ' + this._apiKey 
             },
             body: JSON.stringify({ model, messages, stream: true })
         });
@@ -188,10 +199,10 @@ class ApiService {
                 
                 const requestBody = {
                     contents: contents,
-                    generationConfig: generationConfig
+                    generationConfig: this._generationConfig
                 };
                 
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this._geminiApiKey}`;
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -209,7 +220,7 @@ class ApiService {
                 }
                 
                 return result;
-            }
+            }.bind(this)
         };
     }
 
@@ -227,10 +238,10 @@ class ApiService {
             parts: [{ text: item.content }]
         }));
         
-        const requestBody = { contents, generationConfig };
+        const requestBody = { contents, generationConfig: this._generationConfig };
         
         // Send the streaming request
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${this._geminiApiKey}`;
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -292,7 +303,7 @@ class ApiService {
             
             if (model.startsWith('gpt')) {
                 // ChatGPT usage via non-stream call
-                const res = await sendOpenAIRequest(model, chatHistory);
+                const res = await this.sendOpenAIRequest(model, chatHistory);
                 return res.usage?.total_tokens || 0;
             } else {
                 // Gemini usage
@@ -301,11 +312,11 @@ class ApiService {
                     parts: [{ text: item.content }]
                 }));
                 
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this._geminiApiKey}`;
                 const res = await fetch(url, {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify({ contents, generationConfig })
+                    body: JSON.stringify({ contents, generationConfig: this._generationConfig })
                 });
                 
                 usageResult = await res.json();
@@ -331,7 +342,7 @@ class ApiService {
     async sendRequest(messages, model, stream, abortController, useCoT = false, showThinking = false) {
         // ... (API key check remains the same) ...
 
-        const apiKey = this.getApiKey();
+        const apiKey = this._apiKey;
         if (!apiKey) {
             throw new Error('API key is missing or invalid.');
         }
@@ -415,52 +426,60 @@ class ApiService {
 
         // Ensure the last message is from the 'user'
         if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
-             // If the last message is from the model, we might need to adjust
-             // depending on the specific Gemini API requirements for conversation turns.
-             // For now, we assume the logic sending messages ensures user is last.
-             console.warn("Last message sent to Gemini is from 'model'. Ensure conversation structure is valid.");
+            console.warn("Last message sent to Gemini is from 'model'. Ensure conversation structure is valid.");
         }
 
         const payload = {
             contents: contents,
-            generationConfig: {
-                // Adjust temperature, topP, topK, maxOutputTokens as needed
-                temperature: 1,
-                topP: 0.95,
-                topK: 64,
-                maxOutputTokens: 8192,
-                // responseMimeType: 'text/plain', // Often default, include if needed
-            },
-            // Add safetySettings if required
-            // safetySettings: [ ... ]
+            generationConfig: this._generationConfig
         };
 
         // Add system instruction if provided
         if (systemPromptContent) {
             payload.systemInstruction = {
-                role: 'user', // Gemini system instructions seem to use 'user' role here
+                role: 'user',
                 parts: [{ text: systemPromptContent }]
             };
         }
 
-        // Note: Gemini streaming uses a different endpoint suffix (:streamGenerateContent)
-        // This needs to be handled in the calling function (sendRequest) based on the `stream` flag
-        // The payload structure might also slightly differ for streaming.
-        // Assuming the current endpoint in API_ENDPOINTS handles non-streaming.
-        // If streaming is needed for Gemini, endpoint and potentially payload needs adjustment.
-
         return payload;
     }
 
-    // Public API
-    return {
-        init,
-        sendOpenAIRequest,
-        streamOpenAIRequest,
-        createGeminiSession,
-        streamGeminiRequest,
-        getTokenUsage
-    };
+    /**
+     * Prepares messages with Chain of Thought instructions if enabled
+     * @private
+     * @param {Array<object>} messages - The chat messages
+     * @param {boolean} useCoT - Whether to use Chain of Thought
+     * @param {boolean} showThinking - Whether to show thinking
+     * @returns {Array<object>} - Modified messages
+     */
+    _prepareMessagesForCoT(messages, useCoT, showThinking) {
+        // Implementation based on existing code
+        if (!useCoT) return messages;
+        
+        // Clone the messages to avoid modifying the original
+        const finalMessages = [...messages];
+        
+        // Add CoT instructions to the last user message if it exists
+        if (finalMessages.length > 0 && finalMessages[finalMessages.length - 1].role === 'user') {
+            const lastMsg = finalMessages[finalMessages.length - 1];
+            finalMessages[finalMessages.length - 1] = {
+                ...lastMsg,
+                content: lastMsg.content + "\n\nPlease think step-by-step. Format your response as:\nThinking: [your detailed reasoning]\nAnswer: [your final answer]"
+            };
+        }
+        
+        return finalMessages;
+    }
+    
+    /**
+     * Gets the API key for the current model
+     * @param {string} provider - The provider (openai or google)
+     * @returns {string} - The API key
+     */
+    getApiKey(provider) {
+        return provider === 'google' ? this._geminiApiKey : this._apiKey;
+    }
 }
 
 export default ApiService; 
