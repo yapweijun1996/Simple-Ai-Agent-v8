@@ -2,7 +2,7 @@
  * Settings Controller Module - Manages application settings
  * Handles settings modal and persistence of user preferences
  */
-import { getElement, createFromTemplate } from './utils.js';
+import { getElement } from './utils.js';
 
 // Define default system prompts
 const defaultSystemPrompts = [
@@ -27,53 +27,40 @@ class SettingsController {
     };
     _systemPromptSelect = null;
     _selectedSystemPromptTitle = '';
-    _onSettingsSaved = null;
-    _modelSelect = null;
-    _streamingToggle = null;
-    _cotToggle = null;
-    _showThinkingToggle = null;
 
     /**
      * Initializes the SettingsController.
      * @param {Function} onSettingsSaved - Callback function when settings are saved.
      */
     init(onSettingsSaved) {
-        this._onSettingsSaved = onSettingsSaved;
-        
         if (this._settingsModal) return;
         
         // Create modal from template
-        this._settingsModal = createFromTemplate('settings-modal-template');
+        this._settingsModal = Utils.createFromTemplate('settings-modal-template');
         document.body.appendChild(this._settingsModal);
         
-        // Get UI elements
-        this._modelSelect = getElement('#model-select');
-        this._streamingToggle = getElement('#streaming-toggle');
-        this._cotToggle = getElement('#cot-toggle');
-        this._showThinkingToggle = getElement('#show-thinking-toggle');
-        this._systemPromptSelect = getElement('#system-prompt-select');
-        
         // Set initial values based on current settings
-        if (this._streamingToggle) this._streamingToggle.checked = this._settings.streaming;
-        if (this._cotToggle) this._cotToggle.checked = this._settings.enableCoT;
-        if (this._showThinkingToggle) this._showThinkingToggle.checked = this._settings.showThinking;
-        if (this._modelSelect) this._modelSelect.value = this._settings.selectedModel;
+        document.getElementById('streaming-toggle').checked = this._settings.streaming;
+        document.getElementById('cot-toggle').checked = this._settings.enableCoT;
+        document.getElementById('show-thinking-toggle').checked = this._settings.showThinking;
+        document.getElementById('model-select').value = this._settings.selectedModel;
         
         // Add event listeners
-        getElement('#save-settings').addEventListener('click', this._saveSettings.bind(this));
-        getElement('#close-settings').addEventListener('click', this.hideSettingsModal.bind(this));
+        document.getElementById('save-settings').addEventListener('click', this._saveSettings.bind(this));
+        document.getElementById('close-settings').addEventListener('click', this.hideSettingsModal.bind(this));
         
         // Close when clicking outside the modal content
-        this._settingsModal.addEventListener('click', (event) => {
+        this._settingsModal.addEventListener('click', function(event) {
             if (event.target === this._settingsModal) {
                 this.hideSettingsModal();
             }
-        });
+        }.bind(this));
+
+        this._systemPromptSelect = getElement('#system-prompt-select'); // Get the new select element
 
         // Populate system prompt dropdown
         this._populateSystemPrompts();
 
-        // Load saved settings
         this._loadSettings();
     }
 
@@ -87,11 +74,10 @@ class SettingsController {
         
         // Ensure current settings are reflected when opening
         this._settingsModal.style.display = 'flex';
-        if (this._streamingToggle) this._streamingToggle.checked = this._settings.streaming;
-        if (this._cotToggle) this._cotToggle.checked = this._settings.enableCoT;
-        if (this._showThinkingToggle) this._showThinkingToggle.checked = this._settings.showThinking;
-        if (this._modelSelect) this._modelSelect.value = this._settings.selectedModel;
-        if (this._systemPromptSelect) this._systemPromptSelect.value = this._selectedSystemPromptTitle;
+        document.getElementById('streaming-toggle').checked = this._settings.streaming;
+        document.getElementById('cot-toggle').checked = this._settings.enableCoT;
+        document.getElementById('show-thinking-toggle').checked = this._settings.showThinking;
+        document.getElementById('model-select').value = this._settings.selectedModel;
     }
 
     /**
@@ -107,13 +93,10 @@ class SettingsController {
      * Saves settings from the modal
      */
     _saveSettings() {
-        if (!this._modelSelect || !this._streamingToggle || !this._cotToggle || !this._showThinkingToggle || !this._systemPromptSelect) return;
-
-        const streamingEnabled = this._streamingToggle.checked;
-        const cotEnabled = this._cotToggle.checked;
-        const showThinkingEnabled = this._showThinkingToggle.checked;
-        const selectedModelValue = this._modelSelect.value;
-        this._selectedSystemPromptTitle = this._systemPromptSelect.value;
+        const streamingEnabled = document.getElementById('streaming-toggle').checked;
+        const cotEnabled = document.getElementById('cot-toggle').checked;
+        const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
+        const selectedModelValue = document.getElementById('model-select').value;
         
         this._settings = {
             ...this._settings,
@@ -123,21 +106,22 @@ class SettingsController {
             selectedModel: selectedModelValue
         };
         
+        // Update the chat controller settings
+        ChatController.updateSettings(this._settings);
+        
         // Save settings to localStorage
         localStorage.setItem('selectedModel', selectedModelValue);
         localStorage.setItem('useStreaming', streamingEnabled.toString());
         localStorage.setItem('enableCot', cotEnabled.toString());
         localStorage.setItem('showThinking', showThinkingEnabled.toString());
-        localStorage.setItem('selectedSystemPromptTitle', this._selectedSystemPromptTitle);
+        localStorage.setItem('selectedSystemPromptTitle', this._selectedSystemPromptTitle); // Save selected title
         
         // Hide modal
         this.hideSettingsModal();
 
-        // Call the callback if it exists
-        if (this._onSettingsSaved) {
-            this._onSettingsSaved();
+        if (onSettingsSaved) {
+            onSettingsSaved();
         }
-        
         console.log('Settings saved:', {
             model: selectedModelValue,
             streaming: streamingEnabled,
@@ -179,11 +163,11 @@ class SettingsController {
         if (this._showThinkingToggle) this._showThinkingToggle.checked = showThinking;
         if (this._systemPromptSelect) this._systemPromptSelect.value = savedPromptTitle;
 
-        this._settings.selectedModel = savedModel;
-        this._settings.streaming = useStreaming;
-        this._settings.enableCoT = enableCot;
-        this._settings.showThinking = showThinking;
-        this._selectedSystemPromptTitle = savedPromptTitle;
+        this._selectedModel = savedModel;
+        this._useStreaming = useStreaming;
+        this._enableCot = enableCot;
+        this._showThinking = showThinking;
+        this._selectedSystemPromptTitle = savedPromptTitle; // Store loaded title
     }
 
     /**
