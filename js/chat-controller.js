@@ -2,18 +2,34 @@
  * Chat Controller Module - Manages chat history and message handling
  * Coordinates between UI and API service for sending/receiving messages
  */
-const ChatController = (function() {
-    'use strict';
+import { updateTokenDisplay } from './utils.js';
 
-    // Private state
-    let chatHistory = [];
-    let totalTokens = 0;
-    let settings = { streaming: false, enableCoT: false, showThinking: true };
-    let isThinking = false;
-    let lastThinkingContent = '';
-    let lastAnswerContent = '';
+/**
+ * @class ChatController
+ * @description Manages chat interactions between the UI and API service
+ */
+class ChatController {
+    constructor(apiService, uiController, settingsController) {
+        // Store dependencies
+        this.apiService = apiService;
+        this.uiController = uiController;
+        this.settingsController = settingsController;
 
-    const cotPreamble = `**Chain of Thought Instructions:**
+        // Private state
+        this.chatHistory = [];
+        this.totalTokens = 0;
+        this.settings = { streaming: false, enableCoT: false, showThinking: true };
+        this.isThinking = false;
+        this.lastThinkingContent = '';
+        this.lastAnswerContent = '';
+        this.currentAbortController = null;
+    }
+
+    /**
+     * Chain of Thought preamble for enhancing prompts
+     */
+    get cotPreamble() {
+        return `**Chain of Thought Instructions:**
 1.  **Understand:** Briefly rephrase the core problem or question.
 2.  **Deconstruct:** Break the problem down into smaller, logical steps needed to reach the solution.
 3.  **Execute & Explain:** Work through each step sequentially. Show your reasoning, calculations, or data analysis for each step clearly.
@@ -22,44 +38,49 @@ const ChatController = (function() {
 
 Begin Reasoning Now:
 `;
+    }
 
     /**
      * Initializes the chat controller
      * @param {Object} initialSettings - Initial settings for the chat
      */
-    function init(initialSettings) {
+    init(initialSettings) {
         if (initialSettings) {
-            settings = { ...settings, ...initialSettings };
+            this.settings = { ...this.settings, ...initialSettings };
         }
         
         // Set up event handlers through UI controller
-        UIController.setupEventHandlers(sendMessage, clearChat);
+        this.uiController.setupEventHandlers(
+            this.sendMessage.bind(this), 
+            this.clearChat.bind(this)
+        );
     }
 
     /**
      * Updates the settings
      * @param {Object} newSettings - The new settings
      */
-    function updateSettings(newSettings) {
-        settings = { ...settings, ...newSettings };
-        console.log('Chat settings updated:', settings);
+    updateSettings(newSettings) {
+        this.settings = { ...this.settings, ...newSettings };
+        console.log('Chat settings updated:', this.settings);
     }
 
     /**
      * Clears the chat history and resets token count
      */
-    function clearChat() {
-        chatHistory = [];
-        totalTokens = 0;
-        Utils.updateTokenDisplay(0);
+    clearChat() {
+        this.chatHistory = [];
+        this.totalTokens = 0;
+        updateTokenDisplay(0);
+        this.uiController.clearChatWindow();
     }
 
     /**
      * Gets the current settings
      * @returns {Object} - The current settings
      */
-    function getSettings() {
-        return { ...settings };
+    getSettings() {
+        return { ...this.settings };
     }
 
     /**
@@ -67,7 +88,7 @@ Begin Reasoning Now:
      * @param {string} message - The user message
      * @returns {string} - The CoT enhanced message
      */
-    function enhanceWithCoT(message) {
+    enhanceWithCoT(message) {
         return `${message}\n\nI'd like you to use Chain of Thought reasoning. Please think step-by-step before providing your final answer. Format your response like this:
 Thinking: [detailed reasoning process, exploring different angles and considerations]
 Answer: [your final, concise answer based on the reasoning above]`;
@@ -78,7 +99,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @param {string} response - The raw AI response
      * @returns {Object} - Object with thinking and answer components
      */
-    function processCoTResponse(response) {
+    processCoTResponse(response) {
         console.log("processCoTResponse received:", response);
         // Check if response follows the Thinking/Answer format
         const thinkingMatch = response.match(/Thinking:(.*?)(?=Answer:|$)/s);
@@ -90,8 +111,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
             const answer = answerMatch[1].trim();
             
             // Update the last known content
-            lastThinkingContent = thinking;
-            lastAnswerContent = answer;
+            this.lastThinkingContent = thinking;
+            this.lastAnswerContent = answer;
             
             return {
                 thinking: thinking,
@@ -101,11 +122,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
         } else if (response.startsWith('Thinking:') && !response.includes('Answer:')) {
             // Partial thinking (no answer yet)
             const thinking = response.replace(/^Thinking:/, '').trim();
-            lastThinkingContent = thinking;
+            this.lastThinkingContent = thinking;
             
             return {
                 thinking: thinking,
-                answer: lastAnswerContent,
+                answer: this.lastAnswerContent,
                 hasStructuredResponse: true,
                 partial: true,
                 stage: 'thinking'
@@ -135,7 +156,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @param {string} fullText - The current streamed text
      * @returns {Object} - The processed response object
      */
-    function processPartialCoTResponse(fullText) {
+    processPartialCoTResponse(fullText) {
         console.log("processPartialCoTResponse received:", fullText);
         if (fullText.includes('Thinking:') && !fullText.includes('Answer:')) {
             // Only thinking so far
@@ -176,13 +197,13 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @param {Object} processed - The processed response with thinking and answer
      * @returns {string} - The formatted response for display
      */
-    function formatResponseForDisplay(processed) {
-        if (!settings.enableCoT || !processed.hasStructuredResponse) {
+    formatResponseForDisplay(processed) {
+        if (!this.settings.enableCoT || !processed.hasStructuredResponse) {
             return processed.answer;
         }
 
         // If showThinking is enabled, show both thinking and answer
-        if (settings.showThinking) {
+        if (this.settings.showThinking) {
             if (processed.partial && processed.stage === 'thinking') {
                 return `Thinking: ${processed.thinking}`;
             } else if (processed.partial) {
@@ -199,309 +220,269 @@ Answer: [your final, concise answer based on the reasoning above]`;
     /**
      * Sends a message to the AI and handles the response
      */
-    async function sendMessage() {
-        const message = UIController.getUserInput();
-        if (!message) return;
+    async sendMessage() {
+        // Get message from UI
+        const userMessage = this.uiController.getUserInput();
+        if (!userMessage.trim()) return;
         
-        // Reset the partial response tracking
-        lastThinkingContent = '';
-        lastAnswerContent = '';
+        // Clear input
+        this.uiController.clearUserInput();
         
-        // Add user message to UI
-        UIController.addMessage('user', message);
-        UIController.clearUserInput();
+        // Add to chat window
+        this.uiController.addMessage('user', userMessage);
         
-        // Apply CoT formatting if enabled
-        const enhancedMessage = settings.enableCoT ? enhanceWithCoT(message) : message;
+        // Add to chat history
+        this.chatHistory.push({ role: 'user', content: userMessage });
         
-        // Get the selected model from SettingsController
-        const currentSettings = SettingsController.getSettings();
-        const selectedModel = currentSettings.selectedModel;
+        // Get model from settings
+        const model = this.settingsController.getSettings().selectedModel;
+        
+        // Handle streaming vs non-streaming based on settings
+        this.isThinking = true;
+        
+        // Create AI message placeholder based on streaming setting
+        const aiMessage = this.settings.streaming ? 
+                         this.uiController.createEmptyAIMessage() : 
+                         this.uiController.addMessage('ai', '🤔 Thinking...');
+        
+        // Disable input while processing
+        this.uiController.setLoading(true);
         
         try {
-            if (selectedModel.startsWith('gpt')) {
-                // For OpenAI, add enhanced message to chat history before sending to include the CoT prompt.
-                chatHistory.push({ role: 'user', content: enhancedMessage });
-                console.log("Sent enhanced message to GPT:", enhancedMessage);
-                await handleOpenAIMessage(selectedModel, enhancedMessage);
+            if (model.startsWith('gpt')) {
+                await this.handleOpenAIMessage(model, aiMessage);
+            } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
+                await this.handleGeminiMessage(model, aiMessage);
             } else {
-                // For Gemini, ensure chat history starts with user message if empty
-                if (chatHistory.length === 0) {
-                    chatHistory.push({ role: 'user', content: '' });
-                }
-                await handleGeminiMessage(selectedModel, enhancedMessage);
+                this.uiController.updateMessageContent(aiMessage, "Unsupported model selected.");
             }
         } catch (error) {
             console.error('Error sending message:', error);
-            UIController.addMessage('ai', 'Error: ' + error.message);
+            this.uiController.updateMessageContent(aiMessage, `Error: ${error.message}`);
         } finally {
-            // Update token usage display
-            Utils.updateTokenDisplay(totalTokens);
+            this.isThinking = false;
+            this.uiController.setLoading(false);
+            
+            // Update token display
+            this.uiController.updateTokenCount(this.totalTokens);
         }
     }
 
     /**
-     * Handles OpenAI message processing
+     * Handles sending messages to OpenAI models
      * @param {string} model - The OpenAI model to use
-     * @param {string} message - The user message
+     * @param {Element} aiMessage - The AI message element to update
      */
-    async function handleOpenAIMessage(model, message) {
-        if (settings.streaming) {
-            // Streaming approach
-            const aiMsgElement = UIController.createEmptyAIMessage();
-            let streamedResponse = '';
+    async handleOpenAIMessage(model, aiMessage) {
+        // Setup abort controller
+        this.currentAbortController = new AbortController();
+        
+        if (this.settings.streaming) {
+            // Handle streaming response
+            const reader = await this.apiService.sendRequest(
+                this.chatHistory, 
+                model, 
+                true, 
+                this.currentAbortController,
+                this.settings.enableCoT,
+                this.settings.showThinking
+            );
             
-            try {
-                // Start thinking indicator if CoT is enabled
-                if (settings.enableCoT) {
-                    isThinking = true;
-                    UIController.updateMessageContent(aiMsgElement, '🤔 Thinking...');
-                }
-                
-                // Process streaming response
-                const fullReply = await ApiService.streamOpenAIRequest(
-                    model, 
-                    chatHistory,
-                    (chunk, fullText) => {
-                        streamedResponse = fullText;
-                        
-                        if (settings.enableCoT) {
-                            // Process the streamed response for CoT
-                            const processed = processPartialCoTResponse(fullText);
-                            
-                            // Only show "Thinking..." if we're still waiting
-                            if (isThinking && fullText.includes('Answer:')) {
-                                isThinking = false;
-                            }
-                            
-                            // Format according to current stage and settings
-                            const displayText = formatResponseForDisplay(processed);
-                            UIController.updateMessageContent(aiMsgElement, displayText);
-                        } else {
-                            UIController.updateMessageContent(aiMsgElement, fullText);
-                        }
+            const decoder = new TextDecoder();
+            let responseText = '';
+            
+            let done = false;
+            while (!done) {
+                try {
+                    const { value, done: doneReading } = await reader.read();
+                    done = doneReading;
+                    
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    responseText += chunk;
+                    
+                    // If using Chain of Thought, process for structured output
+                    if (this.settings.enableCoT) {
+                        const processed = this.processPartialCoTResponse(responseText);
+                        const formattedResponse = this.formatResponseForDisplay(processed);
+                        this.uiController.updateMessageContent(aiMessage, formattedResponse);
+                    } else {
+                        this.uiController.updateMessageContent(aiMessage, responseText);
                     }
-                );
-                
-                // Process response for CoT if enabled
-                if (settings.enableCoT) {
-                    const processed = processCoTResponse(fullReply);
-                    
-                    // Add thinking to debug console if available
-                    if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.log('Stream aborted');
+                        done = true;
+                    } else {
+                        throw error;
                     }
-                    
-                    // Update UI with appropriate content based on settings
-                    const displayText = formatResponseForDisplay(processed);
-                    UIController.updateMessageContent(aiMsgElement, displayText);
-                    
-                    // Add full response to chat history
-                    chatHistory.push({ role: 'assistant', content: fullReply });
-                } else {
-                    // Add to chat history after completed
-                    chatHistory.push({ role: 'assistant', content: fullReply });
                 }
-                
-                // Get token usage
-                const tokenCount = await ApiService.getTokenUsage(model, chatHistory);
-                if (tokenCount) {
-                    totalTokens += tokenCount;
-                }
-            } catch (err) {
-                UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
-                throw err;
-            } finally {
-                isThinking = false;
             }
+            
+            // Process the complete response for chat history
+            const finalProcessed = this.settings.enableCoT ? 
+                                  this.processCoTResponse(responseText) : 
+                                  { answer: responseText };
+            
+            this.chatHistory.push({ role: 'ai', content: finalProcessed.answer });
+            
         } else {
-            // Non-streaming approach
-            try {
-                const result = await ApiService.sendOpenAIRequest(model, chatHistory);
-                
-                if (result.error) {
-                    throw new Error(result.error.message);
-                }
-                
-                // Update token usage
-                if (result.usage && result.usage.total_tokens) {
-                    totalTokens += result.usage.total_tokens;
-                }
-                
-                // Process response
-                const reply = result.choices[0].message.content;
-                console.log("GPT non-streaming reply:", reply);
-                
-                if (settings.enableCoT) {
-                    const processed = processCoTResponse(reply);
-                    
-                    // Add thinking to debug console if available
-                    if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
-                    }
-                    
-                    // Add the full response to chat history
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    
-                    // Show appropriate content in the UI based on settings
-                    const displayText = formatResponseForDisplay(processed);
-                    UIController.addMessage('ai', displayText);
-                } else {
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    UIController.addMessage('ai', reply);
-                }
-            } catch (err) {
-                throw err;
+            // Handle non-streaming response
+            const response = await this.apiService.sendRequest(
+                this.chatHistory, 
+                model, 
+                false, 
+                this.currentAbortController,
+                this.settings.enableCoT,
+                this.settings.showThinking
+            );
+            
+            // Process for Chain of Thought structured output if enabled
+            if (this.settings.enableCoT) {
+                const processed = this.processCoTResponse(response);
+                const formattedResponse = this.formatResponseForDisplay(processed);
+                this.uiController.updateMessageContent(aiMessage, formattedResponse);
+                this.chatHistory.push({ role: 'ai', content: processed.answer });
+            } else {
+                this.uiController.updateMessageContent(aiMessage, response);
+                this.chatHistory.push({ role: 'ai', content: response });
             }
+        }
+        
+        // Get token usage
+        try {
+            const tokensUsed = await this.apiService.getTokenUsage(model, this.chatHistory);
+            this.totalTokens += tokensUsed;
+        } catch (error) {
+            console.warn('Unable to get token usage:', error);
         }
     }
 
     /**
-     * Handles Gemini message processing
+     * Handles sending messages to Gemini/Gemma models
      * @param {string} model - The Gemini model to use
-     * @param {string} message - The user message
+     * @param {Element} aiMessage - The AI message element to update
      */
-    async function handleGeminiMessage(model, message) {
-        // Add current message to chat history
-        chatHistory.push({ role: 'user', content: message });
+    async handleGeminiMessage(model, aiMessage) {
+        // Setup abort controller
+        this.currentAbortController = new AbortController();
         
-        if (settings.streaming) {
-            // Streaming approach
-            const aiMsgElement = UIController.createEmptyAIMessage();
-            let streamedResponse = '';
-            
+        if (this.settings.streaming) {
             try {
-                // Start thinking indicator if CoT is enabled
-                if (settings.enableCoT) {
-                    isThinking = true;
-                    UIController.updateMessageContent(aiMsgElement, '🤔 Thinking...');
-                }
-                
-                // Process streaming response
-                const fullReply = await ApiService.streamGeminiRequest(
-                    model,
-                    chatHistory,
-                    (chunk, fullText) => {
-                        streamedResponse = fullText;
-                        
-                        if (settings.enableCoT) {
-                            // Process the streamed response for CoT
-                            const processed = processPartialCoTResponse(fullText);
-                            
-                            // Only show "Thinking..." if we're still waiting
-                            if (isThinking && fullText.includes('Answer:')) {
-                                isThinking = false;
-                            }
-                            
-                            // Format according to current stage and settings
-                            const displayText = formatResponseForDisplay(processed);
-                            UIController.updateMessageContent(aiMsgElement, displayText);
-                        } else {
-                            UIController.updateMessageContent(aiMsgElement, fullText);
-                        }
-                    }
+                const reader = await this.apiService.sendRequest(
+                    this.chatHistory, 
+                    model, 
+                    true, 
+                    this.currentAbortController,
+                    this.settings.enableCoT,
+                    this.settings.showThinking
                 );
                 
-                // Process response for CoT if enabled
-                if (settings.enableCoT) {
-                    const processed = processCoTResponse(fullReply);
-                    
-                    // Add thinking to debug console if available
-                    if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
+                const decoder = new TextDecoder();
+                let responseText = '';
+                
+                let done = false;
+                while (!done) {
+                    try {
+                        const { value, done: doneReading } = await reader.read();
+                        done = doneReading;
+                        
+                        if (done) break;
+                        
+                        const chunk = decoder.decode(value, { stream: true });
+                        responseText += chunk;
+                        
+                        // Process response based on settings
+                        if (this.settings.enableCoT) {
+                            const processed = this.processPartialCoTResponse(responseText);
+                            const formattedResponse = this.formatResponseForDisplay(processed);
+                            this.uiController.updateMessageContent(aiMessage, formattedResponse);
+                        } else {
+                            this.uiController.updateMessageContent(aiMessage, responseText);
+                        }
+                    } catch (error) {
+                        if (error.name === 'AbortError') {
+                            console.log('Stream aborted');
+                            done = true;
+                        } else {
+                            throw error;
+                        }
                     }
-                    
-                    // Update UI with appropriate content based on settings
-                    const displayText = formatResponseForDisplay(processed);
-                    UIController.updateMessageContent(aiMsgElement, displayText);
-                    
-                    // Add full response to chat history
-                    chatHistory.push({ role: 'assistant', content: fullReply });
-                } else {
-                    // Add to chat history after completed
-                    chatHistory.push({ role: 'assistant', content: fullReply });
                 }
                 
-                // Get token usage
-                const tokenCount = await ApiService.getTokenUsage(model, chatHistory);
-                if (tokenCount) {
-                    totalTokens += tokenCount;
-                }
-            } catch (err) {
-                UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
-                throw err;
-            } finally {
-                isThinking = false;
+                // Process the complete response for chat history
+                const finalProcessed = this.settings.enableCoT ? 
+                                      this.processCoTResponse(responseText) : 
+                                      { answer: responseText };
+                
+                this.chatHistory.push({ role: 'ai', content: finalProcessed.answer });
+                
+            } catch (error) {
+                console.error('Error streaming from Gemini:', error);
+                this.uiController.updateMessageContent(aiMessage, `Error: ${error.message}`);
             }
         } else {
-            // Non-streaming approach
             try {
-                const session = ApiService.createGeminiSession(model);
-                const result = await session.sendMessage(message, chatHistory);
+                const response = await this.apiService.sendRequest(
+                    this.chatHistory, 
+                    model, 
+                    false, 
+                    this.currentAbortController,
+                    this.settings.enableCoT,
+                    this.settings.showThinking
+                );
                 
-                // Update token usage if available
-                if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
-                    totalTokens += result.usageMetadata.totalTokenCount;
-                }
-                
-                // Process response
-                const candidate = result.candidates[0];
-                let textResponse = '';
-                
-                if (candidate.content.parts) {
-                    textResponse = candidate.content.parts.map(p => p.text).join(' ');
-                } else if (candidate.content.text) {
-                    textResponse = candidate.content.text;
-                }
-                
-                if (settings.enableCoT) {
-                    const processed = processCoTResponse(textResponse);
-                    
-                    // Add thinking to debug console if available
-                    if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
-                    }
-                    
-                    // Add the full response to chat history
-                    chatHistory.push({ role: 'assistant', content: textResponse });
-                    
-                    // Show appropriate content in the UI based on settings
-                    const displayText = formatResponseForDisplay(processed);
-                    UIController.addMessage('ai', displayText);
+                // Process response based on settings
+                if (this.settings.enableCoT) {
+                    const processed = this.processCoTResponse(response);
+                    const formattedResponse = this.formatResponseForDisplay(processed);
+                    this.uiController.updateMessageContent(aiMessage, formattedResponse);
+                    this.chatHistory.push({ role: 'ai', content: processed.answer });
                 } else {
-                    chatHistory.push({ role: 'assistant', content: textResponse });
-                    UIController.addMessage('ai', textResponse);
+                    this.uiController.updateMessageContent(aiMessage, response);
+                    this.chatHistory.push({ role: 'ai', content: response });
                 }
-            } catch (err) {
-                throw err;
+                
+            } catch (error) {
+                console.error('Error getting response from Gemini:', error);
+                this.uiController.updateMessageContent(aiMessage, `Error: ${error.message}`);
             }
         }
+        
+        // Get token usage for Gemini
+        try {
+            const tokensUsed = await this.apiService.getTokenUsage(model, this.chatHistory);
+            this.totalTokens += tokensUsed;
+        } catch (error) {
+            console.warn('Unable to get Gemini token usage:', error);
+        }
+    }
+
+    /**
+     * Handles settings changes that require immediate action
+     */
+    handleSettingsChange() {
+        // Update UI based on new settings if needed
+        const currentSettings = this.settingsController.getSettings();
+        this.updateSettings(currentSettings);
     }
 
     /**
      * Gets the current chat history
      * @returns {Array} - The chat history
      */
-    function getChatHistory() {
-        return [...chatHistory];
+    getChatHistory() {
+        return [...this.chatHistory];
     }
 
     /**
      * Gets the total tokens used
      * @returns {number} - The total tokens used
      */
-    function getTotalTokens() {
-        return totalTokens;
+    getTotalTokens() {
+        return this.totalTokens;
     }
+}
 
-    // Public API
-    return {
-        init,
-        updateSettings,
-        getSettings,
-        sendMessage,
-        getChatHistory,
-        getTotalTokens,
-        clearChat
-    };
-})(); 
+export default ChatController; 

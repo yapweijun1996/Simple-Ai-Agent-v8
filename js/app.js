@@ -6,145 +6,223 @@ import ApiService from './api-service.js';
 import ChatController from './chat-controller.js';
 import SettingsController from './settings-controller.js';
 import UiController from './ui-controller.js';
-import { getElement, showElement, hideElement } from './utils.js';
+import { 
+    getElement, 
+    showElement, 
+    hideElement, 
+    createFromTemplate, 
+    getSettingsFromCookie, 
+    getPasswordFromCookie, 
+    savePasswordToCookie, 
+    clearSavedPassword 
+} from './utils.js';
 
-const App = (function() {
-    'use strict';
+/**
+ * Main application class
+ */
+class App {
+    constructor() {
+        // Initialize controllers
+        this.uiController = new UiController();
+        this.settingsController = new SettingsController();
+        this.apiService = new ApiService({ 
+            settingsController: this.settingsController, 
+            uiController: this.uiController 
+        });
+        this.chatController = new ChatController(
+            this.apiService, 
+            this.uiController, 
+            this.settingsController
+        );
+        
+        // Private state
+        this.loginModal = null;
+        
+        // Bind initialization to DOM ready event
+        window.addEventListener('DOMContentLoaded', this.init.bind(this));
+    }
     
-    // Private state
-    let loginModal = null;
-
     /**
      * Initializes the application
      */
-    function init() {
+    init() {
         // Initialize UI controller
-        UIController.init();
+        this.uiController.init();
         
-        // Load saved settings from cookie
-        const savedSettings = Utils.getSettingsFromCookie() || {};
+        // Load saved settings
+        const savedSettings = getSettingsFromCookie() || {};
         
-        // Initialize settings controller with saved settings
-        SettingsController.init();
+        // Initialize settings controller with callback
+        this.settingsController.init(() => {
+            // This callback is called when settings are saved
+            console.log('Settings saved callback triggered');
+            // Notify chat controller of settings change if needed
+            if (this.chatController.handleSettingsChange) {
+                this.chatController.handleSettingsChange();
+            }
+        });
         
         // Initialize chat controller with settings
-        ChatController.init(savedSettings);
+        this.chatController.init(savedSettings);
         
         // Show main container (will be visible but login modal on top)
-        document.getElementById('chat-container').style.display = 'flex';
+        const chatContainer = getElement('#chat-container');
+        if (chatContainer) showElement(chatContainer);
         
         // Check for saved password
-        checkPasswordOrPrompt();
+        this.checkPasswordOrPrompt();
     }
 
     /**
      * Checks for a saved password or prompts the user
      */
-    function checkPasswordOrPrompt() {
-        const savedPassword = Utils.getPasswordFromCookie();
+    checkPasswordOrPrompt() {
+        const savedPassword = getPasswordFromCookie();
         
         if (savedPassword) {
-            doLogin(savedPassword);
+            this.doLogin(savedPassword);
         } else {
-            showLoginModal();
+            this.showLoginModal();
         }
     }
     
     /**
      * Creates and shows the login modal
      */
-    function showLoginModal() {
-        if (!loginModal) {
+    showLoginModal() {
+        if (!this.loginModal) {
             // Create login modal from template
-            loginModal = Utils.createFromTemplate('login-modal-template');
-            document.body.appendChild(loginModal);
+            this.loginModal = createFromTemplate('login-modal-template');
+            document.body.appendChild(this.loginModal);
             
             // Setup event listeners
-            document.getElementById('login-button').addEventListener('click', handleLogin);
-            document.getElementById('api-password').addEventListener('keydown', function(event) {
-                if (event.key === 'Enter') {
-                    handleLogin();
-                }
-            });
+            const loginButton = getElement('#login-button', this.loginModal);
+            const passwordInput = getElement('#api-password', this.loginModal);
             
-            // Focus the password input
-            setTimeout(() => {
-                document.getElementById('api-password').focus();
-            }, 100);
+            if (loginButton) {
+                loginButton.addEventListener('click', this.handleLogin.bind(this));
+            }
+            
+            if (passwordInput) {
+                passwordInput.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        this.handleLogin();
+                    }
+                });
+                
+                // Focus the password input
+                setTimeout(() => {
+                    passwordInput.focus();
+                }, 100);
+            }
         }
         
-        loginModal.style.display = 'flex';
-        document.getElementById('login-error').style.display = 'none';
+        showElement(this.loginModal);
+        const loginError = getElement('#login-error', this.loginModal);
+        if (loginError) hideElement(loginError);
     }
     
     /**
      * Handles login form submission
      */
-    function handleLogin() {
-        const passwordInput = document.getElementById('api-password');
-        const rememberCheckbox = document.getElementById('remember-password');
-        const password = passwordInput.value.trim();
+    handleLogin() {
+        const passwordInput = getElement('#api-password', this.loginModal);
+        const rememberCheckbox = getElement('#remember-password', this.loginModal);
+        const loginError = getElement('#login-error', this.loginModal);
         
-        if (!password) {
-            document.getElementById('login-error').textContent = 'Password is required.';
-            document.getElementById('login-error').style.display = 'block';
+        if (!passwordInput || !rememberCheckbox || !loginError) {
+            console.error('Login form elements not found');
             return;
         }
         
-        const success = ApiService.init(password);
+        const password = passwordInput.value.trim();
         
-        if (success) {
-            // Store remember password setting
-            const settings = ChatController.getSettings();
-            settings.rememberPassword = rememberCheckbox.checked;
-            ChatController.updateSettings(settings);
-            
-            // Save password if remember is checked
-            if (rememberCheckbox.checked) {
-                Utils.savePasswordToCookie(password);
-            }
-            
-            // Hide the login modal
-            loginModal.style.display = 'none';
-        } else {
-            // Show error message
-            document.getElementById('login-error').textContent = 'Invalid password. Please try again.';
-            document.getElementById('login-error').style.display = 'block';
-            Utils.clearSavedPassword();
-            passwordInput.value = '';
-            passwordInput.focus();
+        if (!password) {
+            loginError.textContent = 'Password is required.';
+            showElement(loginError);
+            return;
         }
+        
+        this.apiService.attemptLoadKey(password)
+            .then(success => {
+                if (success) {
+                    // Store remember password setting if needed
+                    if (this.chatController.getSettings && this.chatController.updateSettings) {
+                        const settings = this.chatController.getSettings();
+                        settings.rememberPassword = rememberCheckbox.checked;
+                        this.chatController.updateSettings(settings);
+                    }
+                    
+                    // Save password if remember is checked
+                    if (rememberCheckbox.checked) {
+                        savePasswordToCookie(password);
+                    }
+                    
+                    // Hide the login modal
+                    hideElement(this.loginModal);
+                    
+                    // Initialize the main app components
+                    this.initAfterLogin();
+                } else {
+                    // Show error message
+                    loginError.textContent = 'Invalid password. Please try again.';
+                    showElement(loginError);
+                    clearSavedPassword();
+                    passwordInput.value = '';
+                    passwordInput.focus();
+                }
+            })
+            .catch(err => {
+                console.error('Login error:', err);
+                loginError.textContent = `Error: ${err.message || 'Unknown error'}`;
+                showElement(loginError);
+            });
     }
     
     /**
      * Attempts to login with the provided password
      * @param {string} password - The API key password
      */
-    function doLogin(password) {
-        const success = ApiService.init(password);
+    doLogin(password) {
+        this.apiService.attemptLoadKey(password)
+            .then(success => {
+                if (success) {
+                    this.initAfterLogin();
+                } else {
+                    clearSavedPassword();
+                    this.showLoginModal();
+                }
+            })
+            .catch(err => {
+                console.error('Auto-login error:', err);
+                clearSavedPassword();
+                this.showLoginModal();
+            });
+    }
+    
+    /**
+     * Initialize components after successful login
+     */
+    initAfterLogin() {
+        // Show the chat UI
+        const chatContainer = getElement('#chat-container');
+        if (chatContainer) showElement(chatContainer);
         
-        if (!success) {
-            Utils.clearSavedPassword();
-            showLoginModal();
-        }
+        // Additional initialization after login if needed
+        console.log('Login successful, application ready');
     }
     
     /**
      * Logs the user out by clearing saved credentials
      */
-    function logOut() {
-        Utils.clearSavedPassword();
+    logOut() {
+        clearSavedPassword();
         location.reload();
     }
+}
 
-    // Initialize the app when the DOM is ready
-    window.addEventListener('DOMContentLoaded', init);
-    
-    // Public API
-    return {
-        init,
-        logOut
-    };
-})();
+// Initialize the application
+const app = new App();
 
-// The app will auto-initialize when the DOM is loaded 
+// Export for potential external references
+export default app; 
