@@ -148,3 +148,78 @@ const App = (function() {
 })();
 
 // The app will auto-initialize when the DOM is loaded 
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Instantiate necessary components
+    const uiController = new UIController();
+    const apiService = new ApiService(uiController); // Pass uiController if needed for error display or callbacks
+    const settingsController = new SettingsController(uiController, apiService); // Instantiate SettingsController
+    const chatController = new ChatController(uiController, apiService, settingsController); // Pass all three
+
+    // Initialize the application (e.g., check for API key, show login if needed)
+    initializeApp(uiController, apiService, chatController, settingsController);
+});
+
+async function initializeApp(uiController, apiService, chatController, settingsController) {
+    console.log("Initializing App...");
+    uiController.init(); // Basic UI setup if any
+
+    try {
+        // Check if API key needs password or is directly available
+        const needsPassword = await apiService.isPasswordRequired();
+
+        if (needsPassword) {
+            console.log("Password required for API key.");
+            // Show login modal and wait for successful login
+            const loginSuccess = await uiController.showLoginModal(async (password, remember) => {
+                try {
+                    await apiService.setApiKeyPassword(password, remember);
+                    console.log("Password accepted, API key decrypted.");
+                    return true; // Indicate success
+                } catch (error) {
+                    console.error("Login failed:", error);
+                    uiController.showLoginError(error.message || "Invalid password.");
+                    return false; // Indicate failure
+                }
+            });
+
+            if (!loginSuccess) {
+                console.log("Login process aborted or failed.");
+                // Handle login failure (e.g., show error message, prevent app usage)
+                uiController.displayError("API Key access failed. Please refresh and try again.", false); // Non-dismissible error
+                return; // Stop initialization
+            }
+            // If login was successful, modal is hidden by showLoginModal upon success
+        } else {
+            console.log("API key available or password remembered.");
+            // Password not required or already remembered, proceed.
+        }
+
+        // API key is ready, show the main chat interface
+        uiController.showChatInterface();
+        console.log("Chat interface shown.");
+
+        // Initialize controllers that depend on the main UI being visible
+        // ChatController's event listeners are already set up in its constructor
+        // SettingsController's event listeners are also set up
+
+        console.log("App Initialized Successfully.");
+
+    } catch (error) {
+        console.error("Initialization failed:", error);
+        uiController.displayError(`Initialization failed: ${error.message}. Please check console and refresh.`, false);
+    }
+}
+
+
+// Utility function to check if running in Electron
+function isElectron() {
+    return typeof window !== 'undefined' && window.process && window.process.type === 'renderer';
+}
+
+// Utility function to check if running as a Chrome Extension
+function isChromeExtension() {
+    return typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
+}
+
+// Add any other shared initialization logic here 

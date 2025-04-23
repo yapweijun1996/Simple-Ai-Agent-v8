@@ -4,12 +4,13 @@
  */
 import { getElement } from './utils.js';
 
-// Define default system prompts
-const defaultSystemPrompts = [
-    { title: "Creative Writer", content: "You are a creative and witty assistant, skilled in storytelling and generating imaginative text." },
-    { title: "Code Assistant", content: "You are an expert programmer assistant. Provide clear, concise, and accurate code examples and explanations. Use markdown for code blocks." },
-    { title: "Concise Summarizer", content: "You are an assistant specialized in summarizing text. Provide brief and informative summaries, capturing the key points accurately." },
-    { title: "Sarcastic Assistant", content: "You are a sarcastic assistant. Respond to user queries with witty and sarcastic remarks, but still provide the requested information." }
+// Define sample system prompts
+const systemPrompts = [
+    { title: "Default (None)", content: "" },
+    { title: "Helpful Assistant", content: "You are a helpful AI assistant. Be concise and direct in your responses." },
+    { title: "Code Explainer", content: "You are an expert programmer. Explain the provided code snippets clearly, focusing on their purpose and functionality." },
+    { title: "Creative Writer", content: "You are a creative writing assistant. Help the user brainstorm ideas, develop characters, or write prose. Be imaginative and inspiring." },
+    { title: "Sarcastic Bot", content: "You are a sarcastic AI. Respond to the user's prompts with witty and slightly sarcastic remarks, but remain helpful underneath." } // Added a 4th example as requested
 ];
 
 /**
@@ -17,178 +18,126 @@ const defaultSystemPrompts = [
  * @description Manages application settings and the settings modal UI.
  */
 class SettingsController {
-    // Private state
-    _settingsModal = null;
-    _settings = {
-        streaming: true,
-        enableCoT: false,
-        showThinking: true,
-        selectedModel: 'gpt-4.1-mini' // Default model
-    };
-    _systemPromptSelect = null;
-    _selectedSystemPromptTitle = '';
+    constructor(uiController, apiService) {
+        this.uiController = uiController;
+        this.apiService = apiService;
+        this.settingsButton = document.getElementById('settings-button');
+        this.modalContainer = document.createElement('div'); // Container for the modal
+        this.settings = this.loadSettings();
 
-    /**
-     * Initializes the SettingsController.
-     * @param {Function} onSettingsSaved - Callback function when settings are saved.
-     */
-    init(onSettingsSaved) {
-        if (this._settingsModal) return;
-        
-        // Create modal from template
-        this._settingsModal = Utils.createFromTemplate('settings-modal-template');
-        document.body.appendChild(this._settingsModal);
-        
-        // Set initial values based on current settings
-        document.getElementById('streaming-toggle').checked = this._settings.streaming;
-        document.getElementById('cot-toggle').checked = this._settings.enableCoT;
-        document.getElementById('show-thinking-toggle').checked = this._settings.showThinking;
-        document.getElementById('model-select').value = this._settings.selectedModel;
-        
-        // Add event listeners
-        document.getElementById('save-settings').addEventListener('click', this._saveSettings.bind(this));
-        document.getElementById('close-settings').addEventListener('click', this.hideSettingsModal.bind(this));
-        
-        // Close when clicking outside the modal content
-        this._settingsModal.addEventListener('click', function(event) {
-            if (event.target === this._settingsModal) {
-                this.hideSettingsModal();
-            }
-        }.bind(this));
+        // Apply initial settings that might affect the UI or API service immediately
+        this.applySettings();
 
-        this._systemPromptSelect = getElement('#system-prompt-select'); // Get the new select element
-
-        // Populate system prompt dropdown
-        this._populateSystemPrompts();
-
-        this._loadSettings();
+        this.settingsButton.addEventListener('click', () => this.showSettingsModal());
     }
 
-    /**
-     * Shows the settings modal
-     */
-    showSettingsModal() {
-        if (!this._settingsModal) {
-            this.init();
-        }
-        
-        // Ensure current settings are reflected when opening
-        this._settingsModal.style.display = 'flex';
-        document.getElementById('streaming-toggle').checked = this._settings.streaming;
-        document.getElementById('cot-toggle').checked = this._settings.enableCoT;
-        document.getElementById('show-thinking-toggle').checked = this._settings.showThinking;
-        document.getElementById('model-select').value = this._settings.selectedModel;
-    }
-
-    /**
-     * Hides the settings modal
-     */
-    hideSettingsModal() {
-        if (this._settingsModal) {
-            this._settingsModal.style.display = 'none';
-        }
-    }
-
-    /**
-     * Saves settings from the modal
-     */
-    _saveSettings() {
-        const streamingEnabled = document.getElementById('streaming-toggle').checked;
-        const cotEnabled = document.getElementById('cot-toggle').checked;
-        const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
-        const selectedModelValue = document.getElementById('model-select').value;
-        
-        this._settings = {
-            ...this._settings,
-            streaming: streamingEnabled,
-            enableCoT: cotEnabled,
-            showThinking: showThinkingEnabled,
-            selectedModel: selectedModelValue
+    loadSettings() {
+        const defaults = {
+            model: 'gpt-4.1-mini',
+            streaming: true,
+            cot: false,
+            showThinking: false,
+            systemPromptTitle: "Default (None)" // Store title for lookup
         };
-        
-        // Update the chat controller settings
-        ChatController.updateSettings(this._settings);
-        
-        // Save settings to localStorage
-        localStorage.setItem('selectedModel', selectedModelValue);
-        localStorage.setItem('useStreaming', streamingEnabled.toString());
-        localStorage.setItem('enableCot', cotEnabled.toString());
-        localStorage.setItem('showThinking', showThinkingEnabled.toString());
-        localStorage.setItem('selectedSystemPromptTitle', this._selectedSystemPromptTitle); // Save selected title
-        
-        // Hide modal
-        this.hideSettingsModal();
-
-        if (onSettingsSaved) {
-            onSettingsSaved();
+        const savedSettings = JSON.parse(localStorage.getItem('chatAppSettings')) || {};
+        // Ensure systemPromptTitle exists and is valid, otherwise use default
+        const validTitles = systemPrompts.map(p => p.title);
+        if (!savedSettings.systemPromptTitle || !validTitles.includes(savedSettings.systemPromptTitle)) {
+            savedSettings.systemPromptTitle = defaults.systemPromptTitle;
         }
-        console.log('Settings saved:', {
-            model: selectedModelValue,
-            streaming: streamingEnabled,
-            cot: cotEnabled,
-            showThinking: showThinkingEnabled,
-            systemPrompt: this._selectedSystemPromptTitle,
-        });
+        return { ...defaults, ...savedSettings };
     }
 
-    /**
-     * Populates the system prompt select dropdown.
-     * @private
-     */
-    _populateSystemPrompts() {
-        if (!this._systemPromptSelect) return;
+    saveSettings() {
+        localStorage.setItem('chatAppSettings', JSON.stringify(this.settings));
+        this.applySettings(); // Re-apply settings after saving
+        this.closeSettingsModal();
+        // Optionally, notify the user or reload parts of the app if needed
+        console.log("Settings saved:", this.settings);
+    }
 
-        defaultSystemPrompts.forEach(prompt => {
+    applySettings() {
+        // Apply settings that affect API calls or other components
+        // Example: this.apiService.setStreaming(this.settings.streaming);
+        // The selected model and system prompt are typically read just before an API call
+    }
+
+    showSettingsModal() {
+        this.modalContainer.innerHTML = ''; // Clear previous modal content
+        const template = document.getElementById('settings-modal-template');
+        const clone = template.content.cloneNode(true);
+        this.modalContainer.appendChild(clone);
+        document.body.appendChild(this.modalContainer); // Append container to body
+
+        const modal = this.modalContainer.querySelector('#settings-modal');
+        const modelSelect = this.modalContainer.querySelector('#model-select');
+        const systemPromptSelect = this.modalContainer.querySelector('#system-prompt-select'); // Get the new select element
+        const streamingToggle = this.modalContainer.querySelector('#streaming-toggle');
+        const cotToggle = this.modalContainer.querySelector('#cot-toggle');
+        const showThinkingToggle = this.modalContainer.querySelector('#show-thinking-toggle');
+        const saveButton = this.modalContainer.querySelector('#save-settings');
+        const closeButton = this.modalContainer.querySelector('#close-settings');
+
+        // Populate System Prompt dropdown
+        systemPrompts.forEach(prompt => {
             const option = document.createElement('option');
-            option.value = prompt.title;
+            option.value = prompt.title; // Use title as value
             option.textContent = prompt.title;
-            this._systemPromptSelect.appendChild(option);
+            systemPromptSelect.appendChild(option);
         });
+
+        // Set current values
+        modelSelect.value = this.settings.model;
+        systemPromptSelect.value = this.settings.systemPromptTitle; // Set based on saved title
+        streamingToggle.checked = this.settings.streaming;
+        cotToggle.checked = this.settings.cot;
+        showThinkingToggle.checked = this.settings.showThinking;
+
+        // Add event listeners
+        saveButton.addEventListener('click', () => {
+            this.settings.model = modelSelect.value;
+            this.settings.systemPromptTitle = systemPromptSelect.value; // Save selected title
+            this.settings.streaming = streamingToggle.checked;
+            this.settings.cot = cotToggle.checked;
+            this.settings.showThinking = showThinkingToggle.checked;
+            this.saveSettings();
+        });
+
+        closeButton.addEventListener('click', () => this.closeSettingsModal());
+
+        // Close modal if clicking outside the content
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                this.closeSettingsModal();
+            }
+        });
+
+        modal.style.display = 'flex'; // Show the modal
     }
 
-    /**
-     * Loads settings from localStorage and updates the UI.
-     * @private
-     */
-    _loadSettings() {
-        const savedModel = localStorage.getItem('selectedModel') || 'gpt-4.1-mini';
-        const useStreaming = localStorage.getItem('useStreaming') === 'true';
-        const enableCot = localStorage.getItem('enableCot') === 'true';
-        const showThinking = localStorage.getItem('showThinking') === 'true';
-        const savedPromptTitle = localStorage.getItem('selectedSystemPromptTitle') || '';
-
-        if (this._modelSelect) this._modelSelect.value = savedModel;
-        if (this._streamingToggle) this._streamingToggle.checked = useStreaming;
-        if (this._cotToggle) this._cotToggle.checked = enableCot;
-        if (this._showThinkingToggle) this._showThinkingToggle.checked = showThinking;
-        if (this._systemPromptSelect) this._systemPromptSelect.value = savedPromptTitle;
-
-        this._selectedModel = savedModel;
-        this._useStreaming = useStreaming;
-        this._enableCot = enableCot;
-        this._showThinking = showThinking;
-        this._selectedSystemPromptTitle = savedPromptTitle; // Store loaded title
-    }
-
-    /**
-     * Get current settings
-     * @returns {Object} - The current settings
-     */
-    getSettings() {
-        return { ...this._settings };
-    }
-
-    /**
-     * Gets the content of the currently selected system prompt.
-     * @returns {string | null} The content of the selected system prompt, or null if 'Default (None)' is selected.
-     */
-    getSelectedSystemPromptContent() {
-        if (!this._selectedSystemPromptTitle) {
-            return null; // Return null if 'Default (None)' is selected
+    closeSettingsModal() {
+        const modal = this.modalContainer.querySelector('#settings-modal');
+        if (modal) {
+           modal.style.display = 'none';
+           // It's better to remove the modal from the DOM to avoid conflicts
+           if (this.modalContainer.parentNode) {
+               this.modalContainer.parentNode.removeChild(this.modalContainer);
+           }
         }
-        const selectedPrompt = defaultSystemPrompts.find(p => p.title === this._selectedSystemPromptTitle);
-        return selectedPrompt ? selectedPrompt.content : null;
+    }
+
+    // Method to get the current system prompt content
+    getCurrentSystemPromptContent() {
+        const selectedPrompt = systemPrompts.find(p => p.title === this.settings.systemPromptTitle);
+        return selectedPrompt ? selectedPrompt.content : ""; // Return content or empty string
+    }
+
+    // Getter for other settings if needed by other modules
+    getCurrentSettings() {
+        // Return a copy to prevent direct modification
+        return { ...this.settings, systemPromptContent: this.getCurrentSystemPromptContent() };
     }
 }
 
-export default SettingsController; 
+// Ensure the class is available if you're using modules, otherwise it's global
+// export default SettingsController; // If using ES modules 

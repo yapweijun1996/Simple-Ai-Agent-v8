@@ -452,6 +452,268 @@ class ApiService {
         return payload;
     }
 
+    async callModel(messages, model, apiKey, streaming, useCoT, showThinking, systemPromptContent = "") {
+        try {
+            if (model.startsWith('gpt')) {
+                return await this.callOpenAI(messages, model, apiKey, streaming, useCoT, showThinking, systemPromptContent);
+            } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
+                return await this.callGemini(messages, model, apiKey, streaming, useCoT, showThinking, systemPromptContent);
+            } else {
+                throw new Error(`Unsupported model: ${model}`);
+            }
+        } catch (error) {
+            console.error('Error calling model:', error);
+            throw error;
+        }
+    }
+
+    async callOpenAI(messages, model, apiKey, streaming, useCoT, showThinking, systemPromptContent = "") {
+        const url = "https://api.openai.com/v1/chat/completions";
+
+        let apiMessages = messages.map(msg => ({
+            role: msg.sender === 'user' ? 'user' : 'assistant',
+            content: msg.text
+        }));
+
+        if (systemPromptContent && systemPromptContent.trim() !== "") {
+            apiMessages.unshift({ role: 'system', content: systemPromptContent });
+        }
+
+        if (useCoT) {
+            apiMessages.push({ role: 'user', content: this.cotPrompt });
+        }
+
+        const body = {
+            model: model,
+            messages: apiMessages,
+            stream: streaming,
+        };
+
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(body)
+        };
+
+        try {
+            const response = await fetch(url, options);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error("OpenAI API Error:", errorData);
+                throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorData?.error?.message || 'Unknown error'}`);
+            }
+
+            if (streaming) {
+                return this.handleStreamingResponse(response, 'openai', showThinking);
+            } else {
+                const data = await response.json();
+                console.log("OpenAI Response:", data);
+                let responseText = data.choices[0]?.message?.content || "";
+
+                if (useCoT && !showThinking) {
+                    const cotEndMarker = "```";
+                    const cotEndIndex = responseText.lastIndexOf(cotEndMarker);
+                    if (cotEndIndex !== -1) {
+                        const finalAnswerIndex = responseText.indexOf('\n', cotEndIndex) + 1;
+                        responseText = finalAnswerIndex > 0 ? responseText.substring(finalAnswerIndex).trim() : "";
+                    }
+                } else if (useCoT && showThinking) {
+                    // Optionally wrap thinking in a specific way if needed
+                    // responseText = `Thinking:\n${responseText}`; // Example
+                }
+
+                return { fullResponse: responseText, thinkingProcess: useCoT ? responseText : null };
+            }
+        } catch (error) {
+            console.error('Error calling OpenAI:', error);
+            this.uiController.displayError(error.message || 'Failed to fetch response from OpenAI.');
+            throw error;
+        }
+    }
+
+    async callGemini(messages, model, apiKey, streaming, useCoT, showThinking, systemPromptContent = "") {
+        const endpoint = model.startsWith('gemini')
+            ? `https://generativelanguage.googleapis.com/v1beta/models/${model}`
+            : `https://generativelanguage.googleapis.com/v1beta/models/${model}`;
+
+        const action = streaming ? ':streamGenerateContent' : ':generateContent';
+        const url = `${endpoint}${action}?key=${apiKey}`;
+
+        let contents = messages.map(msg => ({
+            role: msg.sender === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.text }]
+        }));
+
+        if (useCoT) {
+            if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+                contents[contents.length - 1].parts[0].text += `\n\n${this.cotPrompt}`;
+            } else {
+                contents.push({ role: 'user', parts: [{ text: this.cotPrompt }] });
+            }
+        }
+
+        const body = {
+            contents: contents,
+            generationConfig: {
+            }
+        };
+
+        if (systemPromptContent && systemPromptContent.trim() !== "") {
+            body.systemInstruction = {
+                parts: [{ text: systemPromptContent }]
+            };
+        }
+
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body)
+        };
+
+        try {
+            const response = await fetch(url, options);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error("Gemini API Error:", errorData);
+                throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorData?.error?.message || 'Unknown error'}`);
+            }
+
+            if (streaming) {
+                return this.handleStreamingResponse(response, 'gemini', showThinking);
+            } else {
+                const data = await response.json();
+                console.log("Gemini Response:", data);
+                let responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+                if (useCoT && !showThinking) {
+                    const cotEndMarker = "```";
+                    const cotEndIndex = responseText.lastIndexOf(cotEndMarker);
+                    if (cotEndIndex !== -1) {
+                        const finalAnswerIndex = responseText.indexOf('\n', cotEndIndex) + 1;
+                        responseText = finalAnswerIndex > 0 ? responseText.substring(finalAnswerIndex).trim() : "";
+                    }
+                } else if (useCoT && showThinking) {
+                    // Optionally wrap thinking in a specific way if needed
+                    // responseText = `Thinking:\n${responseText}`; // Example
+                }
+
+                return { fullResponse: responseText, thinkingProcess: useCoT ? responseText : null };
+            }
+        } catch (error) {
+            console.error('Error calling Gemini:', error);
+            this.uiController.displayError(error.message || 'Failed to fetch response from Gemini.');
+            throw error;
+        }
+    }
+
+    async handleStreamingResponse(response, modelType, showThinking) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullResponse = '';
+        let thinkingProcess = null;
+
+        const streamCallback = this.uiController.updateStreamingMessage.bind(this.uiController);
+        const thinkingCallback = this.uiController.showThinkingProcess.bind(this.uiController);
+
+        let thinkingText = '';
+        let processingThinking = false;
+        const cotStartMarker = "```";
+        const cotEndMarker = "```";
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                if (modelType === 'openai') {
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataString = line.substring(6).trim();
+                            if (dataString === '[DONE]') {
+                                break;
+                            }
+                            try {
+                                const chunk = JSON.parse(dataString);
+                                const delta = chunk.choices?.[0]?.delta?.content || '';
+                                if (delta) {
+                                    fullResponse += delta;
+                                    streamCallback(delta);
+                                }
+                            } catch (e) {
+                                console.warn("Error parsing OpenAI stream chunk:", e, "Data:", dataString);
+                            }
+                        }
+                    }
+                } else if (modelType === 'gemini') {
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.trim() === '') continue;
+                        try {
+                            const chunk = JSON.parse(line);
+                            const delta = chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                            if (delta) {
+                                fullResponse += delta;
+                                streamCallback(delta);
+                            }
+                        } catch (e) {
+                            console.warn("Error parsing Gemini stream chunk:", e, "Data:", line);
+                            buffer = line + (buffer ? '\n' + buffer : '');
+                        }
+                    }
+                }
+            }
+
+            if (buffer) {
+                console.log("Remaining buffer:", buffer);
+            }
+
+            if (this.settings.cot) {
+                const cotStartIndex = fullResponse.indexOf(cotStartMarker);
+                const cotEndIndex = fullResponse.lastIndexOf(cotEndMarker);
+
+                if (cotStartIndex !== -1 && cotEndIndex !== -1 && cotEndIndex > cotStartIndex) {
+                    thinkingProcess = fullResponse.substring(cotStartIndex, cotEndIndex + cotEndMarker.length).trim();
+                    let finalAnswer = fullResponse.substring(cotEndIndex + cotEndMarker.length).trim();
+
+                    if (showThinking) {
+                        thinkingCallback(thinkingProcess);
+                        fullResponse = finalAnswer;
+                    } else {
+                        fullResponse = finalAnswer;
+                        thinkingProcess = null;
+                    }
+                } else {
+                    thinkingProcess = null;
+                }
+            } else {
+                thinkingProcess = null;
+            }
+
+            return { fullResponse, thinkingProcess };
+        } catch (error) {
+            console.error('Error reading stream:', error);
+            this.uiController.displayError(error.message || 'Failed to process streaming response.');
+            throw error;
+        } finally {
+            this.uiController.finalizeStreamingMessage();
+        }
+    }
+
     // Public API
     return {
         init,
@@ -459,7 +721,8 @@ class ApiService {
         streamOpenAIRequest,
         createGeminiSession,
         streamGeminiRequest,
-        getTokenUsage
+        getTokenUsage,
+        callModel
     };
 }
 
