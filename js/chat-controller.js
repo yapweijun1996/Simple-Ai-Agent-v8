@@ -13,6 +13,16 @@ const ChatController = (function() {
     let lastThinkingContent = '';
     let lastAnswerContent = '';
 
+    const cotPreamble = `**Chain of Thought Instructions:**
+1.  **Understand:** Briefly rephrase the core problem or question.
+2.  **Deconstruct:** Break the problem down into smaller, logical steps needed to reach the solution.
+3.  **Execute & Explain:** Work through each step sequentially. Show your reasoning, calculations, or data analysis for each step clearly.
+4.  **Synthesize:** Combine the findings from the previous steps to formulate the final conclusion.
+5.  **Final Answer:** State the final answer clearly and concisely, prefixed exactly with "\\nFinal Answer:".
+
+Begin Reasoning Now:
+`;
+
     /**
      * Initializes the chat controller
      * @param {Object} initialSettings - Initial settings for the chat
